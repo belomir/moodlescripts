@@ -10,13 +10,13 @@
 		busy(){
 			var work = {};
 			this.works.push(work);
-			$('[data-rsa=busy]').css({display: 'flex'});
+			$('[id=busy]').css({display: 'flex'});
 			return work;
 		},
 		unbusy(work){
 			var i = this.works.indexOf(work);
 			if(i>-1)this.works.splice(i, 1);
-			if(this.works.length==0)$('[data-rsa=busy]').hide();
+			if(this.works.length==0)$('[id=busy]').hide();
 		},
 
 
@@ -36,24 +36,27 @@
 			this.origin = window.location.origin;
 
 			$(`
-<h3>Преподаватель <a data-rsa=userId></a></h3>
+<h3>Преподаватель <a id=teacher></a></h3>
 <p>Курс:</p>
-<select data-rsa=course>
+<select id=course>
 	<option value=0 disabled selected>выберите курс</option>
 </select>
 <p>Оценка:</p>
-<select data-rsa=item disabled>
+<select id=item disabled>
 	<option value=0 disabled selected>выберите оценку</option>
 </select>
 <p>Группа:</p>
-<select data-rsa=group disabled>
+<select id=group disabled>
 	<option value=0 disabled selected>выберите группу</option>
 </select>
+<button id=groupGrades disabled>Получить оценки группы</button>
 <p>Студент:</p>
-<select data-rsa=student disabled>
+<select id=student disabled>
 	<option value=0 disabled selected>выберите студента</option>
 </select>
-<div data-rsa=busy style='
+<button id=studentGrades disabled>Получить оценки студента</button>
+
+<div id=busy style='
 	position: absolute;
 	left:0;
 	top:0;
@@ -65,7 +68,7 @@
 	align-items: center;
 	justify-content: center;
 '>
-	<div data-rsa=spinner style='
+	<div id=spinner style='
 		width: 4em;
 		height: 4em;
 		border-radius: 50%;
@@ -79,7 +82,6 @@
 			this.container.css({position: 'relative', minHeight: '10em'});
 			
 			$('<style>')
-				.attr('data-rsa', 'rsa-style')
 				.html(`
 	/* rsa spinner */
 	@keyframes rsa-spinner-rotate {
@@ -88,82 +90,142 @@
 	}`)
 				.appendTo($('head'));
 			
-			var userId = $('#action-menu-0-menu li').eq(2).find('a').attr('href').match(/user\/profile.*id=(\d+)/);
+			var userId = $('#action-menu-0-menu li').eq(2).find('a').prop('href').match(/user\/profile.*id=(\d+)/);
 			this.userId = userId?(userId.length>1?parseInt(userId[1]):0):0;
 			this.userName = $('#action-menu-0-menubar').text();
 			this.userUrl = `${this.origin}/user/profile.php`;
 			
-			$('[data-rsa=userId]').text(this.userName).attr({href: `${this.userUrl}?id=${this.userId}`});
+			$('#teacher').text(this.userName).prop({href: `${this.userUrl}?id=${this.userId}`});
+
+			$('#groupGrades').click(ev=>{this.getGroupGrades(ev);});
+			$('#studentGrades').click(ev=>{this.getStudentGrades(ev);});
+		},
+
+
+		getStudentGrades(evt){
+			var work = this.busy();
+			$.get(
+				`${this.origin}/grade/report/history/index.php`,
+				{
+					id: this.courseId,
+					itemid: this.itemId,
+					userids: this.studentId,
+					revisedonly: 1,
+					download: 'csv',
+				},
+				data=>{
+					console.log(data);
+					this.unbusy(work);
+				},
+				'text');
+		},
+
+
+		getGroupGrades(evt){
+			var work = this.busy();
+			$.get(
+				`${this.origin}/grade/report/history/index.php`,
+				{
+					id: this.courseId,
+					itemid: this.itemId,
+					revisedonly: 1,
+					download: 'csv',
+				},
+				data=>{
+					console.log(data);
+					this.unbusy(work);
+				},
+				'text');
 		},
 
 
 		getStudents(evt){
 			var work = this.busy();
 
-			this.clearSelect('[data-rsa=student]');
-			
-			this.groupId = $(evt.currentTarget).val();
-					/* TODO: sort by surname */
-					$.each(Object.keys(this.groups[this.groupId]), (i,e)=>{
-						var studentId = e;
-						var studentName = this.groups[this.groupId][e];
-						$('<option>')
-							.text(studentName)
-							.val(studentId)
-							.appendTo($('[data-rsa=student]'));
-						
-						$('[data-rsa=student]')
-							.prop({disabled: false});
-						this.unbusy(work);
+			this.clearSelect('#student');
+			this.studentId = 0;
+			$('#studentGrades').prop({disabled: true});
+			/* TODO: sort by surname */
+			$.each(Object.keys(this.groups[this.groupId]), (i,e)=>{
+				var studentId = e;
+				var studentName = this.groups[this.groupId][e];
+				$('<option>')
+					.text(studentName)
+					.val(studentId)
+					.appendTo($('#student'));
+				
+				$('#student')
+					.prop({disabled: false})
+					.change(ev=>{
+						this.studentId = $(ev.currentTarget).val();
+						$('#studentGrades').prop({disabled: !this.itemId});
 					});
+				$('#groupGrades')
+					.prop({disabled: false});
+				this.unbusy(work);
+			});
 		},
 
 
 		getGroups(evt){
 			var work = this.busy();
 
-			this.courseId = $(evt.currentTarget).val();
+			this.clearSelect('#group');
+			this.clearSelect('#student');
+			this.groupId = 0;
+			this.studentId = 0;
+			$('#groupGrades').prop({disabled: true});
+			$('#studentGrades').prop({disabled: true});
 
-			this.clearSelect('[data-rsa=group]');
-			this.clearSelect('[data-rsa=student]');
+			$.get(
+				`${this.origin}/group/overview.php`,
+				{id: $(evt.currentTarget).val()},
+				data=>{
+					this.groups = {};
 
-			$.get(`${this.origin}/group/overview.php`, {id: $(evt.currentTarget).val()}, data=>{
-				this.groups = {};
+					$(data)
+						.find('select[name=group]>option')
+						.filter((i,e)=>$(e).val()>0)
+						.each((i,e)=>{
+							var groupId = $(e).val();
+							var groupName = $(e).text();
+							this.groups[groupId] = {};
+							$(data)
+								.find('table tr')
+								.filter((i,e)=>$(e).find('td:first').text()==groupName)
+								.find('td:eq(1)>a')
+								.each((i,e)=>{
+									var studentId = $(e).prop('href').match(/id=(\d+)/)[1];
+									var studentName = $(e).text();
+									this.groups[groupId][studentId] = studentName;
+								});
+							$('<option>')
+								.text(groupName)
+								.val(groupId)
+								.appendTo($('#group'));
+						});
 
-				$(data)
-					.find('select[name=group]>option')
-					.filter((i,e)=>$(e).val()>0)
-					.each((i,e)=>{
-						var groupId = $(e).val();
-						var groupName = $(e).text();
-						this.groups[groupId] = {};
-						$(data)
-							.find('table tr')
-							.filter((i,e)=>$(e).find('td:first').text()==groupName)
-							.find('td:eq(1)>a')
-							.each((i,e)=>{
-								var studentId = $(e).attr('href').match(/id=(\d+)/)[1];
-								var studentName = $(e).text();
-								this.groups[groupId][studentId] = studentName;
-							});
-						$('<option>')
-							.text(groupName)
-							.val(groupId)
-							.appendTo($('[data-rsa=group]'));
-					});
+						$('#group')
+							.change(ev=>{
+								this.groupId = $(ev.currentTarget).val();
+								this.getStudents(ev);
+								$('#groupGrades').prop({disabled: !this.itemId});
+							})
+							.prop({disabled: false});
 
-					$('[data-rsa=group]')
-						.change(ev=>{this.getStudents(ev);})
-						.prop({disabled: false});
-					this.unbusy(work);
-			}, 'html');
+						this.unbusy(work);
+				},
+				'html');
 		},
 
 
 		getItems(){
 			var work = this.busy();
 
-			this.clearSelect('[data-rsa=item]');
+			this.clearSelect('#item');
+			this.itemId = 0;
+			$('#groupGrades').prop({disabled: true});
+			$('#studentGrades').prop({disabled: true});
 
 			$.get(`${this.origin}/grade/report/singleview/index.php`, {id: this.courseId}, data=>{
 				$(data)
@@ -174,9 +236,15 @@
 						$('<option>')
 							.val(itemId)
 							.text(itemName)
-							.appendTo($('[data-rsa=item]'));
+							.appendTo($('#item'));
 					});
-				$('[data-rsa=item]').prop({disabled: false});
+				$('#item')
+					.prop({disabled: false})
+					.change(ev=>{
+						this.itemId = $(ev.currentTarget).val();
+						$('#groupGrades').prop({disabled: !this.groupId});
+						$('#studentGrades').prop({disabled: !this.studentId});
+					});
 				this.unbusy(work);
 			}, 'html');
 		},
@@ -190,17 +258,18 @@
 				$(data)
 					.find('a[href*="/user/view.php"][href*="id=21874"][href*=course]:not(.dimmed)')
 					.each((i,e)=>{
-						var href = $(e).attr('href');
+						var href = $(e).prop('href');
 						var courseId = href.match(/course=(\d+)/);
 						courseId = courseId?(courseId.length>1?parseInt(courseId[1]):0):0;
 						/* TODO: check for teacher role by course profile link */
 						$('<option>')
 							.text($(e).text())
 							.val(courseId)
-							.appendTo($('[data-rsa=course]'));
+							.appendTo($('#course'));
 					});
 
-				$('[data-rsa=course]').change(ev=>{
+				$('#course').change(ev=>{
+					this.courseId = $(ev.currentTarget).val();
 					this.getGroups(ev);
 					this.getItems(ev);
 				});
@@ -221,6 +290,8 @@
 
 /* 
 TODO:
-	itemids: http://moodle3.stu.ru/grade/report/singleview/index.php?id=4513
-	csvdata: http://moodle3.stu.ru/grade/report/history/index.php?id=4513&userids=21874&itemid=30613&revisedonly=1&download=csv
+	* sort groups by name
+	* sort students by surname
+	* check for teacher role in courses
+	* draw plot by csv
 */
